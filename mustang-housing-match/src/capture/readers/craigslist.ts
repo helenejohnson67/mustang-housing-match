@@ -1,7 +1,12 @@
-import { emptyFacts, listed } from "@/core/domain";
+import { emptyFacts, listed, type ListingFacts } from "@/core/domain";
 import { leaseTypeFromText, parseMoney } from "@/core/textListing";
-import { applyAmenityText, hasType, jsonLd, num, postalAddress, text } from "./shared";
+import { applyAmenityText, hasType, jsonLd, num, postalAddress, setLeaseTerm, text } from "./shared";
 import type { RawCapture } from "./types";
+
+function hasReadableFacts(facts: ListingFacts): boolean {
+  const direct = [facts.address, facts.rent, facts.bedrooms, facts.bathrooms, facts.leaseType, facts.deposit, facts.applicationFee, facts.parkingFee, facts.otherMonthlyFees];
+  return direct.some((fact) => fact.provenance !== "NotListed") || Object.values(facts.amenities).some((fact) => fact.provenance !== "NotListed");
+}
 
 export function readCraigslist(doc: Document, url: string): RawCapture {
   const warnings: string[] = [];
@@ -16,8 +21,9 @@ export function readCraigslist(doc: Document, url: string): RawCapture {
   const period = text(doc.querySelector(".attr.rent_period")).toLowerCase();
   const price = parseMoney(text(doc.querySelector(".postingtitletext .price")) || text(doc.querySelector(".price")));
   if (price != null) {
-    if (period && !/month/.test(period)) warnings.push(`Rent period is "${period.replace(/rent period:\s*/, "")}", not monthly; rent left Not Listed`);
-    else facts.rent = listed(price);
+    if (/month/.test(period)) facts.rent = listed(price);
+    else if (period) warnings.push(`Rent period is "${period.replace(/rent period:\s*/, "")}", not monthly; rent left Not Listed`);
+    else warnings.push("Rent period was not listed; price was left Not Listed");
   }
 
   const important = Array.from(doc.querySelectorAll(".attrgroup .attr.important, .attrgroup .shared-line-bubble")).map(text).join(" ");
@@ -42,12 +48,16 @@ export function readCraigslist(doc: Document, url: string): RawCapture {
   if (/cat=roo|cat=sub|rooms\s*(\/|&)\s*shared|sublets?/i.test(crumbText) || /\broom\b/i.test(title)) facts.rentBasis = "per-person";
 
   const body = text(doc.querySelector("#postingbody"));
-  const lease = leaseTypeFromText(body);
-  if (lease) facts.leaseType = listed(lease);
+  const rawLease = /\b\d+\s*(?:-|–|to)\s*\d+\s*(?:months?|mos?)\b/i.exec(body)?.[0]
+    ?? /\b(?:\d+\s*(?:months?|mos?)|school[\s-]*year|academic[\s-]*year|month[\s-]*to[\s-]*month)\b/i.exec(body)?.[0]
+    ?? null;
+  const lease = leaseTypeFromText(rawLease ?? body);
+  setLeaseTerm(facts, rawLease, lease);
   applyAmenityText(facts, body);
   const dep = /deposit[^$\d]{0,20}\$?\s*(\d{1,3}(?:,\d{3})+|\d{3,5})/i.exec(body);
   if (dep && dep[1]) facts.deposit = listed(Number(dep[1].replace(/,/g, "")));
 
   if (!apt && !price) warnings.push("Neither JSON-LD Apartment nor a .price element was found");
+  if (!hasReadableFacts(facts)) warnings.push("No readable listing information was found");
   return { url, title, source: "craigslist", kind: "listing", facts, warnings };
 }

@@ -1,3 +1,11 @@
 .claude/worktrees/
 .DS_Store
-chrome-extension.zip
+node_modules/
+dist/
+*.zip
+.env
+.env.local
+.env.*.local
+*.swp
+playwright-report/
+test-results/

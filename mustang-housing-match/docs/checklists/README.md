@@ -1,5 +1,5 @@
-# Manual checklists
+# Alpha test checklist
 
-One Markdown checklist per feature, one checkbox per acceptance criterion from `docs/product-brief.md`, run against
-live Zillow, Craigslist and Apartments.com pages before the pilot. Record the date, Chrome version and tester at the top
-of each run.
+The current Sprint 2 Alpha Release v0.1.0 checklist is maintained in [`../../TESTING.md`](../../TESTING.md). It covers the six required user stories, build verification, Chrome installation, and live-page testing for Zillow, Apartments.com, and Craigslist.
+
+Do not mark an item complete until it has been executed against the stated environment. The checklist intentionally starts unchecked so it does not represent unperformed testing as a passed result.

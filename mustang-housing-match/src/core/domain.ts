@@ -1,6 +1,6 @@
-// Domain types shared by every module. Vocabulary follows CONTEXT.md. Pure data: no Chrome, no classes.
+// Domain types shared by capture, scoring, and the side panel. Vocabulary follows CONTEXT.md.
 
-export type Provenance = "Listed" | "NotListed" | "Estimated" | "Corrected";
+export type Provenance = "Listed" | "NotListed" | "Corrected";
 
 /** A Listing Fact: a value plus where it came from. NotListed facts carry value null and are never guessed. */
 export interface Fact<T> {
@@ -11,25 +11,31 @@ export const notListed = <T>(): Fact<T> => ({ value: null, provenance: "NotListe
 export const listed = <T>(value: T): Fact<T> => ({ value, provenance: "Listed" });
 export const corrected = <T>(value: T): Fact<T> => ({ value, provenance: "Corrected" });
 
-export type SourceId = "zillow" | "craigslist" | "apartments" | "text" | "manual";
+export type SourceId = "zillow" | "craigslist" | "apartments";
+/** Canonical preference terms used for matching a listing. */
 export type LeaseType = "school-year" | "month-to-month" | "12-month";
+/**
+ * The advertised lease text. Readers keep a non-standard term (for example,
+ * "6–12 months") instead of falsely turning it into one of the canonical
+ * preference terms.
+ */
+export type LeaseTerm = string;
 export type AmenityId = "parking" | "laundry" | "utilitiesIncluded" | "pets" | "furnished";
 export const AMENITIES: AmenityId[] = ["parking", "laundry", "utilitiesIncluded", "pets", "furnished"];
 export type RentBasis = "per-unit" | "per-person";
 
 export interface ListingFacts {
   address: Fact<string>;
-  /** Monthly rent in dollars, in the Rent Basis. */
+  /** Monthly rent in dollars, as advertised. */
   rent: Fact<number>;
   rentBasis: RentBasis;
   bedrooms: Fact<number>;
   bathrooms: Fact<number>;
-  leaseType: Fact<LeaseType>;
+  /** Raw lease length or terms as the listing states them. */
+  leaseType: Fact<LeaseTerm>;
   amenities: Record<AmenityId, Fact<boolean>>;
-  /** One-time amounts in dollars. */
   deposit: Fact<number>;
   applicationFee: Fact<number>;
-  /** Monthly amounts in dollars. */
   parkingFee: Fact<number>;
   otherMonthlyFees: Fact<number>;
 }
@@ -57,7 +63,6 @@ export interface FloorPlan {
 }
 
 export interface Listing {
-  /** Identity: canonical source URL plus Floor Plan id, or the normalised address for Text and Manual Listings. */
   id: string;
   source: SourceId;
   sourceUrl: string | null;
@@ -70,84 +75,34 @@ export interface Listing {
 
 export type TransportMode = "walk" | "bike" | "bus" | "car";
 export const TRANSPORT_MODES: TransportMode[] = ["walk", "bike", "bus", "car"];
-export type Priority = "low" | "med" | "high";
-export type RoomType = "private" | "shared";
-export type Category = "cost" | "commute" | "lease" | "amenities";
-export const CATEGORIES: Category[] = ["cost", "commute", "lease", "amenities"];
 
 export interface Preferences {
-  /** Per person, per month, dollars. */
-  budget: number | null;
+  /** Maximum monthly rent the student will pay, in dollars. */
+  budget: number;
   transportMode: TransportMode;
-  maxCommuteMinutes: number;
   leaseType: LeaseType;
-  roomType: RoomType;
-  wantedAmenities: AmenityId[];
-  priorities: Record<Category, Priority>;
+  /** Desired bedroom count. Studio is 0. */
+  preferredBedrooms: number;
+  /** Desired bathroom count. Half-bath increments such as 1.5 are allowed. */
+  preferredBathrooms: number;
+  parkingRequired: boolean;
+  laundryRequired: boolean;
+  petsAllowedRequired: boolean;
+  utilitiesIncludedPreferred: boolean;
+  furnishedPreferred: boolean;
 }
+
+export const DEFAULT_BUDGET = 1500;
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  budget: null,
+  budget: DEFAULT_BUDGET,
   transportMode: "bike",
-  maxCommuteMinutes: 15,
   leaseType: "school-year",
-  roomType: "private",
-  wantedAmenities: ["parking", "laundry", "utilitiesIncluded"],
-  priorities: { cost: "high", commute: "high", lease: "med", amenities: "low" },
+  preferredBedrooms: 2,
+  preferredBathrooms: 1,
+  parkingRequired: true,
+  laundryRequired: true,
+  petsAllowedRequired: false,
+  utilitiesIncludedPreferred: true,
+  furnishedPreferred: false,
 };
-
-export interface GeoPoint {
-  lat: number;
-  lon: number;
-}
-
-export type ModeResult = { kind: "ok"; minutes: number; miles: number } | { kind: "not-available" };
-
-/** The Commute, or why there is none. referencePointVersion flushes caches when the Campus Reference Point moves. */
-export type Commute =
-  | {
-      kind: "ok";
-      origin: GeoPoint;
-      modes: Record<TransportMode, ModeResult>;
-      /** ISO 8601 departure used for the bus itinerary (next weekday 08:00 Pacific). */
-      transitDeparture: string;
-      attribution: string[];
-      providerId: string;
-      referencePointVersion: number;
-    }
-  | { kind: "address-not-found"; referencePointVersion: number }
-  | { kind: "transient-failure"; message: string; referencePointVersion: number };
-
-export type Status = "saved" | "considering" | "tour-scheduled" | "applied" | "rejected" | "selected";
-export const STATUSES: Status[] = ["saved", "considering", "tour-scheduled", "applied", "rejected", "selected"];
-
-export interface Note {
-  id: string;
-  authorId: string;
-  authorName: string;
-  text: string;
-  createdAt: string;
-}
-
-export interface FitScoreEntry {
-  score: number;
-  computedAt: string;
-}
-
-export interface SavedListing {
-  id: string;
-  listing: Listing;
-  commute: Commute | null;
-  status: Status;
-  finalist: boolean;
-  /** ISO 8601 or null */
-  tourAt: string | null;
-  landlordQuestions: string[];
-  notes: Note[];
-  /** Keyed by Member identity id. */
-  fitScores: Record<string, FitScoreEntry>;
-  addedBy: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-}

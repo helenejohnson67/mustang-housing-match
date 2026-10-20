@@ -1,4 +1,4 @@
-// Free-text parsing shared by the Text Listing flow (Facebook posts) and the Source readers' text fields.
+// Free-text helpers used by the Zillow, Craigslist, and Apartments.com readers.
 // Every helper returns null / NotListed when the text says nothing; nothing is guessed.
 
 import { type AmenityId, type Fact, type LeaseType, type ListingFacts, type RentBasis, emptyFacts, listed, notListed } from "./domain";
@@ -16,6 +16,9 @@ export function parseMoney(text: string | null | undefined): number | null {
 export function leaseTypeFromText(text: string | null | undefined): LeaseType | null {
   if (!text) return null;
   const t = text.toLowerCase();
+  // A range such as "6–12 months" is genuine information, but it is not an
+  // exact 12-month preference match. Callers retain the raw text instead.
+  if (/\b\d+\s*(?:-|–|to)\s*\d+\s*(?:months?|mos?)\b/.test(t)) return null;
   if (/month[\s-]*to[\s-]*month|\bm2m\b|\bmtm\b|monthly lease/.test(t)) return "month-to-month";
   if (/school[\s-]*year|academic[\s-]*year|\b(9|10)[\s-]*months?\b|\bnine[\s-]*month|\bten[\s-]*month|sept(ember)?\s*(to|-|–|through)\s*june|fall\s*(to|-|–|through)\s*spring/.test(t)) return "school-year";
   if (/\b12[\s-]*months?\b|\btwelve[\s-]*month|\b1[\s-]*year\b|one[\s-]*year|year[\s-]*lease|\bannual\b|\byearly\b|12[\s-]*mo\b/.test(t)) return "12-month";

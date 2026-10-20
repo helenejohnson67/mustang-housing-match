@@ -1,28 +1,32 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { TabBar, type TabId } from "./components/TabBar";
-import { MatchTab } from "./screens/MatchTab";
-import { SavedTab } from "./screens/SavedTab";
-import { CompareTab } from "./screens/CompareTab";
-import { RoommatesTab } from "./screens/RoommatesTab";
 import { createServices, type Services } from "./services";
 import { MatchController } from "./state/match";
-import { SharingController } from "./state/sharing";
+import { useStore } from "./state/store";
+import { PreferencesScreen } from "./screens/PreferencesScreen";
+import { AnalyzeScreen } from "./screens/AnalyzeScreen";
+import { ResultsScreen } from "./screens/ResultsScreen";
 
 export function App({ services: injected }: { services?: Services } = {}) {
-  const [tab, setTab] = useState<TabId>("match");
   const [services, setServices] = useState<Services | undefined>(injected);
   useEffect(() => {
     if (!services) void createServices().then(setServices);
   }, []);
-  const controllers = useMemo(() => {
-    if (!services) return undefined;
-    const match = new MatchController(services);
-    const sharing = new SharingController(services);
-    // Preferences live in the Match store; the sharing side needs them for this Member's Fit Scores.
-    match.store.subscribe((s) => { if (s.loaded) sharing.setPreferences(s.prefs); });
-    return { match, sharing };
-  }, [services]);
-  useEffect(() => () => { controllers?.match.dispose(); controllers?.sharing.dispose(); }, [controllers]);
+  const controller = useMemo(() => (services ? new MatchController(services) : undefined), [services]);
+  useEffect(() => () => { controller?.dispose(); }, [controller]);
+  if (!services || !controller) return <div class="app"><div class="empty">Loading…</div></div>;
+  return <LoadedApp controller={controller} />;
+}
+
+function LoadedApp({ controller }: { controller: MatchController }) {
+  const s = useStore(controller.store);
+  useEffect(() => {
+    if (!s.loaded) void controller.init();
+  }, [controller, s.loaded]);
+
+  const tab: TabId = s.screen;
+  const setTab = (id: TabId) => controller.go(id);
+
   return (
     <div class="app">
       <header class="app__header">
@@ -31,20 +35,32 @@ export function App({ services: injected }: { services?: Services } = {}) {
         </div>
         <div>
           <div class="app__title">Mustang Housing Match</div>
-          <div class="app__subtitle">Cal Poly · San Luis Obispo</div>
+          <div class="app__subtitle">Cal Poly · San Luis Obispo · v0.1.0</div>
         </div>
       </header>
-      <div class="app__notice">Estimates are labelled. Confirm details with the landlord.</div>
+      <div class="app__notice">Missing listing details stay Not listed. Confirm facts with the landlord.</div>
       <main class="app__main" data-tab={tab}>
-        {!services || !controllers ? (
+        {!s.loaded ? (
           <div class="empty">Loading…</div>
+        ) : tab === "preferences" ? (
+          <PreferencesScreen initial={s.prefs} saved={s.prefsSaved} onSave={(p) => void controller.savePreferences(p)} />
+        ) : tab === "analyze" ? (
+          <AnalyzeScreen
+            state={s}
+            onAnalyze={() => void controller.analyze()}
+            onEdit={(k, v) => controller.editFact(k, v)}
+            onAmenity={(id, v) => controller.editAmenity(id, v)}
+            onPlan={(id) => controller.pickFloorPlan(id)}
+            onSave={() => void controller.saveListingChanges()}
+          />
         ) : (
-          <>
-            {tab === "match" && <MatchTab services={services} controller={controllers.match} />}
-            {tab === "saved" && <SavedTab controller={controllers.sharing} onGoMatch={() => setTab("match")} onGoRoommates={() => setTab("roommates")} />}
-            {tab === "compare" && <CompareTab controller={controllers.sharing} onNavigate={setTab} />}
-            {tab === "roommates" && <RoommatesTab controller={controllers.sharing} onGoMatch={() => setTab("match")} onGoCompare={() => setTab("compare")} />}
-          </>
+          <ResultsScreen
+            listing={s.listing}
+            result={s.scorecard}
+            prefs={s.prefs}
+            onEdit={() => controller.go("analyze")}
+            onPreferences={() => controller.go("preferences")}
+          />
         )}
       </main>
       <TabBar active={tab} onChange={setTab} />

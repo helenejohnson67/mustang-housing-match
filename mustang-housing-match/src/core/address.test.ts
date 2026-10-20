@@ -47,16 +47,16 @@ describe("listingIdentity", () => {
       "https://www.craigslist.org/view/d/x/1",
     );
   });
-  it("uses the normalised address for Text and Manual Listings", () => {
-    expect(listingIdentity({ source: "manual", sourceUrl: null, floorPlanId: null, address: "870 Foothill Blvd, SLO CA 93405" })).toBe("address:870 foothill blvd slo");
-    expect(listingIdentity({ source: "text", sourceUrl: null, floorPlanId: null, address: "870 Foothill Boulevard" })).toBe("address:870 foothill blvd");
+  it("uses the normalised address when there is no source URL", () => {
+    expect(listingIdentity({ source: "zillow", sourceUrl: null, floorPlanId: null, address: "870 Foothill Blvd, SLO CA 93405" })).toBe("address:870 foothill blvd slo");
+    expect(listingIdentity({ source: "craigslist", sourceUrl: null, floorPlanId: null, address: "870 Foothill Boulevard" })).toBe("address:870 foothill blvd");
   });
 });
 
 function mk(id: string, address: string | null): Listing {
   const facts = emptyFacts();
   if (address) facts.address = listed(address);
-  return { id, source: "manual", sourceUrl: null, floorPlanId: null, title: id, facts, capturedAt: "2026-10-12T00:00:00Z" };
+  return { id, source: "zillow", sourceUrl: null, floorPlanId: null, title: id, facts, capturedAt: "2026-10-12T00:00:00Z" };
 }
 
 describe("isDuplicate", () => {

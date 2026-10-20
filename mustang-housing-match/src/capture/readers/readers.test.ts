@@ -23,6 +23,93 @@ describe("capturePage dispatch", () => {
   });
 });
 
+describe("reader safety guards", () => {
+  const doc = (html: string): Document => new DOMParser().parseFromString(html, "text/html");
+
+  it("scans all Zillow cache entries and prefers an identified rental over a for-sale entry", () => {
+    const cache = {
+      ForSaleQuery: { property: { homeStatus: "FOR_SALE", price: 900000, streetAddress: "Sale House" } },
+      ForRentQuery: {
+        property: {
+          isForRent: true,
+          price: 2100,
+          streetAddress: "Rental House",
+          bedrooms: 2,
+          bathrooms: 1,
+        },
+      },
+    };
+    const page = doc(`<title>Zillow</title><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { componentProps: { gdpClientCache: JSON.stringify(cache) } } } })}</script>`);
+    const result = capturePage(page, "https://www.zillow.com/homedetails/rental-house/123_zpid/");
+
+    expect(result.facts!.rent.value).toBe(2100);
+    expect(result.facts!.address.value).toBe("Rental House");
+  });
+
+  it("does not label a Zillow for-sale price as rent", () => {
+    const cache = {
+      ForSaleQuery: { property: { homeStatus: "FOR_SALE", price: 900000, streetAddress: "Sale House" } },
+    };
+    const page = doc(`<title>Zillow</title><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { componentProps: { gdpClientCache: JSON.stringify(cache) } } } })}</script>`);
+    const result = capturePage(page, "https://www.zillow.com/homedetails/sale-house/123_zpid/");
+
+    expect(result.facts!.rent.provenance).toBe("NotListed");
+    expect(result.warnings.join(" ")).toMatch(/not confirmed as a rental/i);
+  });
+
+  it("leaves an Apartments.com displayed rent range unscored instead of selecting one endpoint", () => {
+    const page = doc(`
+      <title>Apartment range</title>
+      <div class="priceBedRangeInfo"><div class="priceBedRangeInfoInnerContainer">
+        <p class="rentInfoLabel">Monthly Rent</p><p class="rentInfoDetail">$1500-$2100</p>
+      </div></div>
+      <script type="application/ld+json">{"@type":"ApartmentComplex","offers":{"price":1700}}</script>
+    `);
+    const result = capturePage(page, "https://www.apartments.com/example-place/abc1234/");
+
+    expect(result.facts!.rent.provenance).toBe("NotListed");
+    expect(result.warnings.join(" ")).toMatch(/range or starting price/i);
+  });
+
+  it("uses ApartmentComplex JSON-LD when the visual summary is unavailable", () => {
+    const page = doc(`
+      <title>JSON-LD apartment</title>
+      <script type="application/ld+json">{
+        "@type":"ApartmentComplex",
+        "address":{"streetAddress":"55 Higuera St","addressLocality":"San Luis Obispo","addressRegion":"CA","postalCode":"93401"},
+        "numberOfBedrooms":2,
+        "numberOfBathroomsTotal":1,
+        "offers":{"price":"1850"}
+      }</script>
+    `);
+    const result = capturePage(page, "https://www.apartments.com/example-place/abc1234/");
+
+    expect(result.facts!.address.value).toBe("55 Higuera St, San Luis Obispo, CA 93401");
+    expect(result.facts!.rent.value).toBe(1850);
+    expect(result.facts!.bedrooms.value).toBe(2);
+    expect(result.facts!.bathrooms.value).toBe(1);
+  });
+
+  it("does not assume a Craigslist price is monthly when its rent period is absent", () => {
+    const page = doc(`<title>Craigslist listing</title><h1 class="postingtitletext"><span class="price">$800</span></h1>`);
+    const result = capturePage(page, "https://www.craigslist.org/view/d/example/abc123/");
+
+    expect(result.facts!.rent.provenance).toBe("NotListed");
+    expect(result.warnings.join(" ")).toMatch(/rent period was not listed/i);
+  });
+
+  it("warns when a supported reader cannot find any readable listing information", () => {
+    for (const url of [
+      "https://www.zillow.com/homedetails/empty/123_zpid/",
+      "https://www.apartments.com/example-place/abc1234/",
+      "https://www.craigslist.org/view/d/example/abc123/",
+    ]) {
+      const result = capturePage(doc("<title>Empty</title>"), url);
+      expect(result.warnings).toContain("No readable listing information was found");
+    }
+  });
+});
+
 describe("Zillow home-detail page", () => {
   const r = capturePage(fixture("zillow-home.html"), "https://www.zillow.com/homedetails/870-Foothill-Blvd-San-Luis-Obispo-CA-93405/123456789_zpid/");
   it("reads every Listing Fact from __NEXT_DATA__", () => {
@@ -72,7 +159,7 @@ describe("Zillow building page", () => {
     expect(a!.facts.deposit?.value).toBe(500);
     expect(a!.facts.leaseType?.value).toBe("12-month");
     expect(b!.facts.rent?.value).toBe(3300);
-    expect(b!.facts.leaseType).toBeUndefined();
+    expect(b!.facts.leaseType?.value).toBe("Contact For Details");
     const f = r.facts!;
     expect(f.address.value).toBe("1150 Chorro St, San Luis Obispo, CA 93401");
     expect(f.rent.provenance).toBe("NotListed"); // picker decides
@@ -82,7 +169,7 @@ describe("Zillow building page", () => {
     expect(f.amenities.parking.value).toBe(true);
     expect(f.amenities.laundry.value).toBe(true);
     expect(f.amenities.pets.value).toBe(true);
-    expect(r.warnings).toContain('Lease term "Contact For Details" not recognised');
+    expect(r.warnings).toEqual([]);
   });
 });
 
@@ -125,7 +212,7 @@ describe("Apartments.com property page", () => {
     expect(f.rent.value).toBe(3850);
     expect(f.bedrooms.value).toBe(3);
     expect(f.bathrooms.value).toBe(3);
-    expect(f.leaseType.value).toBe("12-month");
+    expect(f.leaseType.value).toBe("6 - 12 Month");
     expect(f.applicationFee.value).toBe(40);
     expect(f.parkingFee.value).toBe(25);
     expect(f.amenities.parking.value).toBe(true);

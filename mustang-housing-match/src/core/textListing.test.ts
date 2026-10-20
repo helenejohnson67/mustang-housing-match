@@ -15,7 +15,7 @@ describe("leaseTypeFromText", () => {
   it("maps common phrasings", () => {
     expect(leaseTypeFromText("1 Year")).toBe("12-month");
     expect(leaseTypeFromText("12-month lease")).toBe("12-month");
-    expect(leaseTypeFromText("6 - 12 Month Leases")).toBe("12-month");
+    expect(leaseTypeFromText("6 - 12 Month Leases")).toBeNull();
     expect(leaseTypeFromText("Month to Month")).toBe("month-to-month");
     expect(leaseTypeFromText("school year lease, Sept to June")).toBe("school-year");
     expect(leaseTypeFromText("10-month lease")).toBe("school-year");

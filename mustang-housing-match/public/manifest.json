@@ -1,20 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Mustang Housing Match",
-  "version": "0.9.0",
-  "description": "Evaluate off-campus rental listings against your priorities and decide together with your roommates.",
+  "version": "0.1.0",
+  "description": "Capture off-campus rental listings and score them against a Cal Poly student's housing preferences.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "scripting", "activeTab"],
   "host_permissions": [
     "https://*.zillow.com/*",
     "https://*.craigslist.org/*",
-    "https://*.apartments.com/*",
-    "https://api.openrouteservice.org/*",
-    "https://transit.land/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
+    "https://*.apartments.com/*"
   ],
-  "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "side_panel": { "default_path": "src/sidepanel/index.html" },
   "action": { "default_title": "Open Mustang Housing Match" },

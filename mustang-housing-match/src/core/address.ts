@@ -46,7 +46,7 @@ export interface IdentityInput {
   address: string | null;
 }
 
-/** Canonical source URL plus Floor Plan, or the normalised address for Text and Manual Listings. */
+/** Canonical source URL plus Floor Plan, or the normalised address when there is no URL. */
 export function listingIdentity(input: IdentityInput): string {
   if (input.sourceUrl) {
     const base = canonicalSourceUrl(input.sourceUrl);

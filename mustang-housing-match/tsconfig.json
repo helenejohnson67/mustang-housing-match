@@ -16,5 +16,5 @@
     "paths": { "@/*": ["./src/*"] },
     "baseUrl": "."
   },
-  "include": ["src", "e2e", "vite.config.ts", "vite.background.config.ts", "vite.capture.config.ts", "vitest.config.ts", "playwright.config.ts"]
+  "include": ["src", "vite.config.ts", "vite.background.config.ts", "vite.capture.config.ts", "vitest.config.ts"]
 }

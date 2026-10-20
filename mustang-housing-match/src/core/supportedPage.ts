@@ -5,7 +5,6 @@ export interface DetectedSource {
   source: "zillow" | "craigslist" | "apartments";
   kind: SourceKind;
 }
-
 const FIXTURE_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
 /** Returns the Source and page kind for a Supported Page, or null for an Unsupported Page. */
@@ -35,7 +34,10 @@ export function detectSource(url: string): DetectedSource | null {
   }
   if (host === "craigslist.org" || host.endsWith(".craigslist.org")) {
     if (/^\/view\/d\/[^/]+\/[A-Za-z0-9]+\/?$/.test(path)) return { source: "craigslist", kind: "listing" };
-    if (/^\/[a-z]{3}\/d\/[^/]+\/\d+\.html$/.test(path)) return { source: "craigslist", kind: "listing" };
+    // Classic URLs expose a category. Limit the recognized patterns to
+    // apartment, room/share, and sublet listings instead of treating every
+    // Craigslist detail page (jobs, sales, services, etc.) as rental housing.
+    if (/^\/(?:apa|roo|sub)\/d\/[^/]+\/\d+\.html$/.test(path)) return { source: "craigslist", kind: "listing" };
     return null;
   }
   if (host === "apartments.com" || host.endsWith(".apartments.com")) {
@@ -43,17 +45,4 @@ export function detectSource(url: string): DetectedSource | null {
     return null;
   }
   return null;
-}
-
-/** Facebook Marketplace items and group posts are handled as Text Listings (student selects the post text). */
-export function isTextListingPage(url: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return false;
-  }
-  const host = u.hostname.toLowerCase();
-  if (!(host === "facebook.com" || host.endsWith(".facebook.com"))) return false;
-  return /^\/marketplace\/item\/\d+/.test(u.pathname) || /^\/groups\/[^/]+\/(posts|permalink)\/\d+/.test(u.pathname);
 }

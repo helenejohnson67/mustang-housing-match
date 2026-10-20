@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectSource, isTextListingPage } from "./supportedPage";
+import { detectSource } from "./supportedPage";
 
 describe("detectSource", () => {
   it("recognises Zillow home-detail and building pages", () => {
@@ -10,6 +10,7 @@ describe("detectSource", () => {
   it("recognises both Craigslist posting URL shapes", () => {
     expect(detectSource("https://www.craigslist.org/view/d/atascadero-air-conditioning-business/5BdQGNL6Xjb6zsddTd1PB5")).toEqual({ source: "craigslist", kind: "listing" });
     expect(detectSource("https://slo.craigslist.org/apa/d/atascadero-air-conditioning-business/7976313438.html")).toEqual({ source: "craigslist", kind: "listing" });
+    expect(detectSource("https://slo.craigslist.org/sss/d/atascadero-table/7976313438.html")).toBeNull();
     expect(detectSource("https://www.craigslist.org/search/area/slo?cat=apa")).toBeNull();
   });
   it("recognises Apartments.com detail pages but not search pages", () => {
@@ -26,15 +27,5 @@ describe("detectSource", () => {
   it("returns null for junk", () => {
     expect(detectSource("not a url")).toBeNull();
     expect(detectSource("https://example.com/")).toBeNull();
-  });
-});
-
-describe("isTextListingPage", () => {
-  it("matches Facebook Marketplace items and group posts", () => {
-    expect(isTextListingPage("https://www.facebook.com/marketplace/item/1234567890/")).toBe(true);
-    expect(isTextListingPage("https://www.facebook.com/groups/calpolyhousing/posts/987654321/")).toBe(true);
-    expect(isTextListingPage("https://www.facebook.com/groups/calpolyhousing/permalink/987654321/")).toBe(true);
-    expect(isTextListingPage("https://www.facebook.com/")).toBe(false);
-    expect(isTextListingPage("https://www.zillow.com/")).toBe(false);
   });
 });

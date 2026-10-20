@@ -14,7 +14,7 @@ function walk(dir: string, out: string[] = []): string[] {
 describe("module boundaries", () => {
   it("core and providers never import chrome APIs", () => {
     const offenders: string[] = [];
-    for (const dir of ["src/core", "src/providers"]) {
+    for (const dir of ["src/core"]) {
       for (const file of walk(join(process.cwd(), dir))) {
         const src = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
         if (/\bchrome\./.test(src) || /from ["'](@\/chrome|\.\.\/chrome|\.\.\/\.\.\/chrome)/.test(src)) offenders.push(file);

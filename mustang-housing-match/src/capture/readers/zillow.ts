@@ -1,7 +1,15 @@
 import { emptyFacts, listed, type FloorPlan, type ListingFacts } from "@/core/domain";
 import { leaseTypeFromMonths, leaseTypeFromText, parseMoney } from "@/core/textListing";
-import { applyAmenityText, get, hasType, jsonLd, num, postalAddress, str } from "./shared";
+import { applyAmenityText, get, hasType, jsonLd, num, postalAddress, setLeaseTerm, str } from "./shared";
 import type { RawCapture } from "./types";
+
+type RecordValue = Record<string, unknown>;
+
+interface CachedProperty {
+  property: RecordValue;
+  /** Includes the cache query key when one is available. */
+  path: string;
+}
 
 function nextData(doc: Document): unknown {
   const el = doc.getElementById("__NEXT_DATA__");
@@ -11,6 +19,135 @@ function nextData(doc: Document): unknown {
   } catch {
     return null;
   }
+}
+
+function record(value: unknown): RecordValue | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : undefined;
+}
+
+/**
+ * Zillow's gdpClientCache is not a stable single object.  It has appeared as
+ * JSON, as an object, and with more than one query result.  Scan all of the
+ * cache entries instead of trusting object insertion order.
+ */
+function gdpCaches(nd: unknown): unknown[] {
+  const caches: unknown[] = [];
+  const seen = new Set<object>();
+  const visit = (value: unknown, depth: number): void => {
+    if (!value || typeof value !== "object" || depth > 12) return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    for (const [key, child] of Object.entries(value as RecordValue)) {
+      if (key === "gdpClientCache") caches.push(child);
+      else visit(child, depth + 1);
+    }
+  };
+  visit(nd, 0);
+  return caches;
+}
+
+function parseCache(cacheRaw: unknown, warnings: string[]): unknown {
+  if (typeof cacheRaw !== "string") return cacheRaw;
+  try {
+    return JSON.parse(cacheRaw);
+  } catch {
+    warnings.push("gdpClientCache was not valid JSON");
+    return null;
+  }
+}
+
+function parseNestedJson(value: string): unknown | null {
+  if (!/^\s*[{\[]/.test(value)) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function cachedProperties(cacheRaw: unknown, index: number, warnings: string[]): CachedProperty[] {
+  const cache = parseCache(cacheRaw, warnings);
+  const found: CachedProperty[] = [];
+  const seen = new Set<object>();
+  const visit = (value: unknown, path: string, depth: number): void => {
+    if (depth > 12) return;
+    if (typeof value === "string") {
+      const parsed = parseNestedJson(value);
+      if (parsed) visit(parsed, path, depth + 1);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    for (const [key, child] of Object.entries(value as RecordValue)) {
+      const childPath = `${path}.${key}`;
+      const property = key === "property" ? record(child) : undefined;
+      if (property) found.push({ property, path: childPath });
+      visit(child, childPath, depth + 1);
+    }
+  };
+  visit(cache, `gdpClientCache[${index}]`, 0);
+  return found;
+}
+
+function textValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (typeof value === "boolean") return [String(value)];
+  return [];
+}
+
+function hasOwn(obj: RecordValue, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/** True only when the cached property has a concrete rental signal. */
+function isRentalProperty(property: RecordValue, path: string): boolean {
+  const status = [
+    ...textValues(property.homeStatus),
+    ...textValues(property.homeStatusForHDP),
+    ...textValues(property.listingStatus),
+    ...textValues(property.marketingStatus),
+    ...textValues(property.statusType),
+  ].join(" ").toLowerCase();
+
+  // A sale status must win over a stale query key so a sale price is never
+  // presented as monthly rent.
+  if (/for[_\s-]?sale|sold|pending|coming[_\s-]?soon|foreclosure/.test(status)) return false;
+  if (property.isForRent === true || property.isRentalListing === true || property.isRental === true) return true;
+  if (/for[_\s-]?rent|rental|lease/.test(status)) return true;
+
+  if (record(property.rentalCostsAndFees) || record(property.rentalApplicationPriceDetail)) return true;
+  if (hasOwn(property, "listPriceIncludesRequiredMonthlyFees")) return true;
+
+  // The cache query itself is a reliable signal on Zillow's detail pages.
+  return /for[_\s-]?rent|rental|leaseout/i.test(path);
+}
+
+function propertyCompleteness(property: RecordValue): number {
+  return ["address", "streetAddress", "price", "bedrooms", "bathrooms", "resoFacts", "rentalCostsAndFees"].filter((key) => property[key] != null).length;
+}
+
+function selectCachedProperty(candidates: CachedProperty[]): CachedProperty | undefined {
+  return candidates.slice().sort((a, b) => {
+    const rentalDifference = Number(isRentalProperty(b.property, b.path)) - Number(isRentalProperty(a.property, a.path));
+    return rentalDifference || propertyCompleteness(b.property) - propertyCompleteness(a.property);
+  })[0];
+}
+
+/** Avoid turning a malformed value such as "$1,500 - $2,000" into 15002000. */
+function exactMoney(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : null;
+  if (typeof value !== "string" || !/^\s*\$?\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?\s*$/.test(value)) return null;
+  return parseMoney(value);
+}
+
+function hasReadableFacts(facts: ListingFacts): boolean {
+  const direct = [facts.address, facts.rent, facts.bedrooms, facts.bathrooms, facts.leaseType, facts.deposit, facts.applicationFee, facts.parkingFee, facts.otherMonthlyFees];
+  return direct.some((fact) => fact.provenance !== "NotListed") || Object.values(facts.amenities).some((fact) => fact.provenance !== "NotListed");
+}
+
+function hasReadableFloorPlans(plans: FloorPlan[] | undefined): boolean {
+  return Boolean(plans?.some((plan) => Object.values(plan.facts).some((fact) => fact?.provenance !== "NotListed")));
 }
 
 function amenityBlob(res: Record<string, unknown> | undefined): string {
@@ -27,37 +164,28 @@ function amenityBlob(res: Record<string, unknown> | undefined): string {
 }
 
 function readHome(nd: unknown, facts: ListingFacts, warnings: string[]): boolean {
-  const cacheRaw = get(nd, "props.pageProps.componentProps.gdpClientCache");
-  let cache: unknown = cacheRaw;
-  if (typeof cacheRaw === "string") {
-    try {
-      cache = JSON.parse(cacheRaw);
-    } catch {
-      warnings.push("gdpClientCache was not valid JSON");
-      return false;
-    }
-  }
-  if (!cache || typeof cache !== "object") return false;
-  const firstKey = Object.keys(cache as object)[0];
-  const property = firstKey ? get(cache, `${firstKey}.property`) : undefined;
-  if (!property || typeof property !== "object") {
+  const candidates = gdpCaches(nd).flatMap((cache, index) => cachedProperties(cache, index, warnings));
+  const candidate = selectCachedProperty(candidates);
+  if (!candidate) {
     warnings.push("No property in gdpClientCache");
     return false;
   }
-  const p = property as Record<string, unknown>;
+  const p = candidate.property;
   const addr = postalAddress(p.address) ?? str(p.streetAddress);
   if (addr) facts.address = listed(addr);
-  const price = num(p.price);
-  if (price != null) facts.rent = listed(price);
+  const price = exactMoney(p.price);
+  if (price != null && isRentalProperty(p, candidate.path)) facts.rent = listed(price);
+  else if (price != null) warnings.push("Zillow property was not confirmed as a rental; sale price was left Not Listed");
   const beds = num(p.bedrooms);
   if (beds != null) facts.bedrooms = listed(beds);
   const baths = num(p.bathrooms);
   if (baths != null) facts.bathrooms = listed(baths);
 
   const reso = (p.resoFacts && typeof p.resoFacts === "object" ? p.resoFacts : {}) as Record<string, unknown>;
-  const lease = leaseTypeFromMonths(num(get(p, "rentalCostsAndFees.leaseDuration"))) ?? leaseTypeFromText(str(reso.leaseTerm));
-  if (lease) facts.leaseType = listed(lease);
-  else if (str(reso.leaseTerm)) warnings.push(`Lease term "${str(reso.leaseTerm)}" not recognised`);
+  const leaseMonths = num(get(p, "rentalCostsAndFees.leaseDuration"));
+  const rawLease = str(reso.leaseTerm) ?? (leaseMonths != null ? `${leaseMonths} months` : null);
+  const lease = leaseTypeFromMonths(leaseMonths) ?? leaseTypeFromText(rawLease);
+  setLeaseTerm(facts, rawLease, lease);
 
   const fees = Array.isArray(reso.feesAndDues) ? (reso.feesAndDues as Record<string, unknown>[]) : [];
   const dep = fees.find((f) => /deposit/i.test(String(f.type ?? f.name ?? "")));
@@ -95,9 +223,9 @@ function unitPlan(planName: string, unit: Record<string, unknown>, warnings: str
   const baths = num(unit.baths);
   const price = num(unit.price) ?? parseMoney(str(unit.price));
   const leaseDetail = (unit.leaseTermDetail && typeof unit.leaseTermDetail === "object" ? unit.leaseTermDetail : {}) as Record<string, unknown>;
-  const lease = leaseTypeFromText(str(leaseDetail.leaseTerm));
+  const rawLease = str(leaseDetail.leaseTerm);
+  const lease = leaseTypeFromText(rawLease);
   const deposit = parseMoney(str(leaseDetail.deposit) ?? (typeof leaseDetail.deposit === "number" ? String(leaseDetail.deposit) : null)) ?? parseMoney(str(unit.depositsAndFees));
-  if (str(leaseDetail.leaseTerm) && !lease) warnings.push(`Lease term "${str(leaseDetail.leaseTerm)}" not recognised`);
   const unitNo = str(unit.unitNumber) ?? str(unit.name);
   const label = [beds != null ? `${beds} bd` : null, baths != null ? `${baths} ba` : null].filter(Boolean).join(" / ");
   const facts: FloorPlan["facts"] = {};
@@ -105,7 +233,7 @@ function unitPlan(planName: string, unit: Record<string, unknown>, warnings: str
   if (beds != null) facts.bedrooms = listed(beds);
   if (baths != null) facts.bathrooms = listed(baths);
   if (deposit != null) facts.deposit = listed(deposit);
-  if (lease) facts.leaseType = listed(lease);
+  if (lease || rawLease) facts.leaseType = listed(lease ?? rawLease!);
   return {
     id: [planName, unitNo].filter(Boolean).join("#") || label,
     name: `${planName}${unitNo ? ` · Unit ${unitNo}` : ""} · ${label}${price != null ? ` · $${price.toLocaleString("en-US")}` : ""}`,
@@ -147,9 +275,46 @@ function readBuilding(nd: unknown, facts: ListingFacts, warnings: string[]): Flo
   if (plans.length === 1) {
     Object.assign(facts, plans[0]!.facts);
   }
-  const buildingLease = Array.isArray(attrs.leaseTerms) && attrs.leaseTerms.length ? leaseTypeFromText(attrs.leaseTerms.map(String).join(" ")) : null;
-  if (buildingLease && facts.leaseType.provenance === "NotListed") facts.leaseType = listed(buildingLease);
+  const rawBuildingLease = Array.isArray(attrs.leaseTerms) && attrs.leaseTerms.length ? attrs.leaseTerms.map(String).join("; ") : null;
+  const buildingLease = leaseTypeFromText(rawBuildingLease);
+  if (facts.leaseType.provenance === "NotListed") setLeaseTerm(facts, rawBuildingLease, buildingLease);
   return plans;
+}
+
+function offers(value: unknown): RecordValue[] {
+  if (Array.isArray(value)) return value.flatMap((item) => {
+    const offer = record(item);
+    return offer ? [offer] : [];
+  });
+  const offer = record(value);
+  return offer ? [offer] : [];
+}
+
+function rentalOffer(offer: RecordValue, node: RecordValue): boolean {
+  const priceSpecification = record(offer.priceSpecification);
+  const signal = [
+    offer.businessFunction,
+    offer.category,
+    offer.description,
+    offer.name,
+    priceSpecification?.unitText,
+    priceSpecification?.description,
+    node.businessFunction,
+    node.category,
+    node.description,
+  ].flatMap(textValues).join(" ");
+  if (/for\s*sale|sale\s*price|\bsold\b|\bpending\b/i.test(signal)) return false;
+  return /lease(?:out)?|rental|\brent\b|monthly|per\s+month/i.test(signal);
+}
+
+function offerPrice(offer: RecordValue): number | null {
+  const direct = exactMoney(offer.price) ?? exactMoney(record(offer.priceSpecification)?.price);
+  if (direct != null) return direct;
+  const low = exactMoney(offer.lowPrice);
+  const high = exactMoney(offer.highPrice);
+  // An AggregateOffer can only stand in for one rental price when its bounds
+  // agree. A low price alone is commonly a "from" price, not this listing's rent.
+  return low != null && high != null && low === high ? low : null;
 }
 
 function readJsonLdFallback(doc: Document, facts: ListingFacts): boolean {
@@ -157,19 +322,31 @@ function readJsonLdFallback(doc: Document, facts: ListingFacts): boolean {
   for (const node of jsonLd(doc)) {
     if (!hasType(node, "RealEstateListing") && !hasType(node, "Product")) continue;
     found = true;
-    const offers = node.offers as Record<string, unknown> | undefined;
-    const price = num(offers?.price) ?? num(offers?.lowPrice);
-    if (price != null && facts.rent.provenance === "NotListed") facts.rent = listed(price);
-    const item = (node.itemOffered ?? offers?.itemOffered ?? node.about) as Record<string, unknown> | undefined;
-    const addr = postalAddress(item?.address) ?? postalAddress(node.address);
-    if (addr && facts.address.provenance === "NotListed") facts.address = listed(addr);
-    const beds = num(item?.numberOfBedrooms);
-    if (beds != null && facts.bedrooms.provenance === "NotListed") facts.bedrooms = listed(beds);
-    const baths = num(item?.numberOfBathroomsTotal);
-    if (baths != null && facts.bathrooms.provenance === "NotListed") facts.bathrooms = listed(baths);
-    const amen = item?.amenityFeature;
-    if (Array.isArray(amen)) applyAmenityText(facts, amen.map((a) => (a && typeof a === "object" ? String((a as Record<string, unknown>).name ?? "") : String(a))).join(", "));
-    if (item?.petsAllowed === true) applyAmenityText(facts, "pets allowed");
+    const nodeOffers = offers(node.offers);
+    const itemCandidates = [
+      record(node.itemOffered),
+      ...nodeOffers.map((offer) => record(offer.itemOffered)),
+      record(node.about),
+      node,
+    ].filter((item): item is RecordValue => Boolean(item));
+
+    for (const item of itemCandidates) {
+      const addr = postalAddress(item.address);
+      if (addr && facts.address.provenance === "NotListed") facts.address = listed(addr);
+      const beds = num(item.numberOfBedrooms);
+      if (beds != null && facts.bedrooms.provenance === "NotListed") facts.bedrooms = listed(beds);
+      const baths = num(item.numberOfBathroomsTotal);
+      if (baths != null && facts.bathrooms.provenance === "NotListed") facts.bathrooms = listed(baths);
+      const amen = item.amenityFeature;
+      if (Array.isArray(amen)) applyAmenityText(facts, amen.map((a) => (a && typeof a === "object" ? String((a as Record<string, unknown>).name ?? "") : String(a))).join(", "));
+      if (item.petsAllowed === true) applyAmenityText(facts, "pets allowed");
+    }
+
+    if (facts.rent.provenance === "NotListed") {
+      const rental = nodeOffers.find((offer) => rentalOffer(offer, node));
+      const price = rental ? offerPrice(rental) : null;
+      if (price != null) facts.rent = listed(price);
+    }
   }
   return found;
 }
@@ -192,8 +369,9 @@ export function readZillow(doc: Document, url: string, kind: "home" | "building"
     }
     if (!ok) warnings.push("__NEXT_DATA__ did not have the expected shape; used JSON-LD");
   } else warnings.push("No __NEXT_DATA__ on the page; used JSON-LD");
-  if (!ok && !readJsonLdFallback(doc, facts)) warnings.push("No JSON-LD listing data found either");
-  else if (!ok) readJsonLdFallback(doc, facts);
+  const foundJsonLd = readJsonLdFallback(doc, facts);
+  if (!ok && !foundJsonLd) warnings.push("No JSON-LD listing data found either");
+  if (!hasReadableFacts(facts) && !hasReadableFloorPlans(floorPlans)) warnings.push("No readable listing information was found");
   const result: RawCapture = { url, title: doc.title, source: "zillow", kind, facts, warnings };
   if (floorPlans) result.floorPlans = floorPlans;
   return result;

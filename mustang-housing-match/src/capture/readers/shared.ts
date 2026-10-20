@@ -1,4 +1,4 @@
-import { listed, type AmenityId, type ListingFacts } from "@/core/domain";
+import { listed, type AmenityId, type LeaseType, type ListingFacts } from "@/core/domain";
 import { amenityHints } from "@/core/textListing";
 
 export function text(el: Element | null | undefined): string {
@@ -62,4 +62,15 @@ export function applyAmenityText(facts: ListingFacts, blob: string): void {
   for (const [k, v] of Object.entries(hints) as [AmenityId, boolean][]) {
     if (v !== undefined && facts.amenities[k].provenance === "NotListed") facts.amenities[k] = listed(v);
   }
+}
+
+/**
+ * Keep the terms a source actually states. A canonical value is used only
+ * when the text represents an exact scoring term; otherwise the raw value is
+ * still shown and remains editable instead of being mislabeled Not listed.
+ */
+export function setLeaseTerm(facts: ListingFacts, raw: string | null | undefined, canonical: LeaseType | null): void {
+  const text = raw?.replace(/\s+/g, " ").trim();
+  if (canonical) facts.leaseType = listed(canonical);
+  else if (text) facts.leaseType = listed(text);
 }

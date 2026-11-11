@@ -86,3 +86,11 @@ The repository includes automated unit tests and build/type-check scripts. Live 
 - Support multiple locally saved listings and carefully designed comparison views.
 - Consider opt-in roommate collaboration only after the core capture and score workflow is validated.
 - Add additional accessibility, usability, and live-page regression testing based on pilot feedback.
+# v0.2.0 (local iteration)
+
+- Added first-run onboarding and a Help control to reopen it.
+- Added persistent Saved Listings, URL/address duplicate prevention, and manual listing entry.
+- Added Must-Have, Nice-to-Have, and Not Important priorities with match categories.
+- Added side-by-side comparison, clipboard summaries, and print-to-PDF export.
+- Added Redfin, Facebook Marketplace, and local-provider page detection. Automatic extraction remains verified only for Zillow, Craigslist, and Apartments.com; other providers use manual entry.
+

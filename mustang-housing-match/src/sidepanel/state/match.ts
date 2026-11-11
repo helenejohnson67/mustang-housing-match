@@ -1,15 +1,15 @@
 import {
-  DEFAULT_BUDGET, DEFAULT_PREFERENCES, corrected, type Fact, type FloorPlan, type Listing, type ListingFacts,
+  DEFAULT_BUDGET, DEFAULT_PREFERENCES, corrected, emptyFacts, type Fact, type FloorPlan, type Listing, type ListingFacts,
   type Preferences, type SourceId,
 } from "@/core/domain";
 import { fitScore, type FitScoreResult } from "@/core/scoring";
-import { listingIdentity } from "@/core/address";
+import { isDuplicate, listingIdentity } from "@/core/address";
 import { detectSource, type DetectedSource } from "@/core/supportedPage";
 import type { RawCapture } from "@/capture/readers/types";
 import { KEYS, type Services } from "../services";
 import { createStore, type Store } from "./store";
 
-export type Screen = "preferences" | "analyze" | "results";
+export type Screen = "home" | "preferences" | "saved" | "compare" | "help" | "analyze" | "results";
 
 export type PageState =
   | { status: "unknown" }
@@ -37,12 +37,16 @@ export interface MatchState {
   scorecard: FitScoreResult | null;
   prefsSaved: boolean;
   listingSaved: boolean;
+  listings: Listing[];
+  selectedIds: string[];
+  onboardingComplete: boolean;
+  notice: string | null;
 }
 
 export const initialMatchState: MatchState = {
   loaded: false,
   prefs: DEFAULT_PREFERENCES,
-  screen: "analyze",
+  screen: "home",
   page: { status: "unknown" },
   capture: { status: "idle" },
   review: null,
@@ -50,10 +54,11 @@ export const initialMatchState: MatchState = {
   scorecard: null,
   prefsSaved: false,
   listingSaved: false,
+  listings: [], selectedIds: [], onboardingComplete: false, notice: null,
 };
 
 export const SOURCE_LABEL: Record<SourceId, string> = {
-  zillow: "Zillow", craigslist: "Craigslist", apartments: "Apartments.com",
+  zillow: "Zillow", craigslist: "Craigslist", apartments: "Apartments.com", redfin: "Redfin", facebook: "Facebook Marketplace", "california-west": "California-West", "farrell-smyth": "Farrell Smyth", "rpm-central-coast": "RPM Central Coast", manual: "Manual entry",
 };
 
 export const UNSUPPORTED_TEXT =
@@ -73,7 +78,7 @@ function mergePrefs(stored: Partial<Preferences> | undefined): Preferences {
   const preferredBathrooms = typeof stored.preferredBathrooms === "number" && stored.preferredBathrooms > 0 && stored.preferredBathrooms <= 8
     ? stored.preferredBathrooms
     : DEFAULT_PREFERENCES.preferredBathrooms;
-  return { ...DEFAULT_PREFERENCES, ...stored, budget, preferredBedrooms, preferredBathrooms };
+  return { ...DEFAULT_PREFERENCES, ...stored, priorities: { ...DEFAULT_PREFERENCES.priorities, ...stored.priorities }, budget, preferredBedrooms, preferredBathrooms };
 }
 
 export class MatchController {
@@ -93,9 +98,11 @@ export class MatchController {
   }
 
   async init(): Promise<void> {
-    const [prefs, listing] = await Promise.all([
+    const [prefs, listing, listings, onboardingComplete] = await Promise.all([
       this.services.local.get<Preferences>(KEYS.preferences),
       this.services.local.get<Listing>(KEYS.lastListing),
+      this.services.local.get<Listing[]>(KEYS.listings),
+      this.services.local.get<boolean>(KEYS.onboardingComplete),
     ]);
     this.patch({
       loaded: true,
@@ -111,6 +118,7 @@ export class MatchController {
         warnings: [],
         captured: listing.facts,
       } : null,
+      listings: listings ?? (listing ? [listing] : []), onboardingComplete: onboardingComplete === true,
     });
     this.recompute();
     await this.refreshPage();
@@ -123,6 +131,21 @@ export class MatchController {
 
   go(screen: Screen) {
     this.patch({ screen, prefsSaved: false, listingSaved: false });
+  }
+
+  async completeOnboarding(screen: Screen = "preferences") { await this.services.local.set(KEYS.onboardingComplete, true); this.patch({ onboardingComplete: true, screen }); }
+  async reopenOnboarding() { await this.services.local.remove(KEYS.onboardingComplete); this.patch({ onboardingComplete: false }); }
+  toggleCompare(id: string) {
+    const selectedIds = this.state.selectedIds.includes(id) ? this.state.selectedIds.filter((x) => x !== id) : this.state.selectedIds.length < 4 ? [...this.state.selectedIds, id] : this.state.selectedIds;
+    this.patch({ selectedIds, notice: selectedIds.length >= 2 ? null : "Select 2–4 properties to compare." });
+  }
+  openListing(listing: Listing) { this.patch({ listing, review: { source: listing.source, sourceUrl: listing.sourceUrl, title: listing.title, facts: listing.facts, floorPlans: [], floorPlanId: listing.floorPlanId, warnings: [], captured: listing.facts }, screen: "results" }); this.recompute(); }
+  async deleteListing(id: string) { const listings = this.state.listings.filter((l) => l.id !== id); await this.services.local.set(KEYS.listings, listings); this.patch({ listings, selectedIds: this.state.selectedIds.filter((x) => x !== id) }); }
+  addManualListing() {
+    const facts = emptyFacts();
+    const listing = this.toListing({ source: "manual", sourceUrl: null, title: "New property", facts, floorPlanId: null });
+    this.patch({ listing, review: { source: "manual", sourceUrl: null, title: "New property", facts, floorPlans: [], floorPlanId: null, warnings: [], captured: facts }, screen: "analyze", listingSaved: false });
+    this.recompute();
   }
 
   async savePreferences(prefs: Preferences) {
@@ -218,8 +241,12 @@ export class MatchController {
   async saveListingChanges(): Promise<void> {
     const listing = this.state.listing;
     if (!listing) return;
+    const existing = this.state.listings.find((l) => l.id !== listing.id && isDuplicate(l, listing));
+    if (existing) { this.patch({ listing: existing, listingSaved: false, notice: "This property is already saved. Opened the existing listing so your corrections are preserved." }); this.recompute(); return; }
+    const listings = [...this.state.listings.filter((l) => l.id !== listing.id), listing];
+    await this.services.local.set(KEYS.listings, listings);
     await this.services.local.set(KEYS.lastListing, listing);
-    this.patch({ listingSaved: true });
+    this.patch({ listings, listingSaved: true, notice: null });
     this.recompute();
   }
 

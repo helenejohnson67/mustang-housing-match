@@ -15,6 +15,8 @@ export interface Services {
 export const KEYS = {
   preferences: "mhm.preferences",
   lastListing: "mhm.lastListing",
+  listings: "mhm.listings",
+  onboardingComplete: "mhm.onboardingComplete",
 } as const;
 
 let instance: Services | undefined;

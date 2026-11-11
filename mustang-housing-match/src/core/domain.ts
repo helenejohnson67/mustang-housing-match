@@ -11,7 +11,9 @@ export const notListed = <T>(): Fact<T> => ({ value: null, provenance: "NotListe
 export const listed = <T>(value: T): Fact<T> => ({ value, provenance: "Listed" });
 export const corrected = <T>(value: T): Fact<T> => ({ value, provenance: "Corrected" });
 
-export type SourceId = "zillow" | "craigslist" | "apartments";
+export type SourceId = "zillow" | "craigslist" | "apartments" | "redfin" | "facebook" | "california-west" | "farrell-smyth" | "rpm-central-coast" | "manual";
+export type Priority = "must" | "nice" | "none";
+export type PriorityKey = "budget" | "rooms" | "parking" | "laundry" | "lease" | "pets" | "utilities" | "furnished" | "transport";
 /** Canonical preference terms used for matching a listing. */
 export type LeaseType = "school-year" | "month-to-month" | "12-month";
 /**
@@ -90,6 +92,8 @@ export interface Preferences {
   petsAllowedRequired: boolean;
   utilitiesIncludedPreferred: boolean;
   furnishedPreferred: boolean;
+  /** Simple importance choices. Missing older saved values are migrated to sensible defaults. */
+  priorities: Record<PriorityKey, Priority>;
 }
 
 export const DEFAULT_BUDGET = 1500;
@@ -105,4 +109,5 @@ export const DEFAULT_PREFERENCES: Preferences = {
   petsAllowedRequired: false,
   utilitiesIncludedPreferred: true,
   furnishedPreferred: false,
+  priorities: { budget: "must", rooms: "nice", parking: "must", laundry: "must", lease: "nice", pets: "none", utilities: "nice", furnished: "none", transport: "none" },
 };

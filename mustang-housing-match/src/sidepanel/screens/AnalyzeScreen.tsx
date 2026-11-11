@@ -51,18 +51,18 @@ export function AnalyzeScreen({ state, onAnalyze, onEdit, onAmenity, onPlan, onS
   const supported = page.status === "supported";
   // A saved/captured listing remains available on the Results tab, but it must
   // never appear as data for whichever unrelated page the user visits next.
-  const currentReview = review && supported && review.sourceUrl === page.url ? review : null;
+  const currentReview = review && (review.source === "manual" || (supported && review.sourceUrl === page.url)) ? review : null;
   const f = currentReview?.facts;
 
   return (
     <div class="stack">
       <Header
         context="Analyze Listing"
-        title={supported ? "This listing is supported" : "This page is not supported"}
-        lede={supported ? "We only extract facts that appear on the page. Missing values stay Not listed." : undefined}
+        title={currentReview?.source === "manual" ? "Add a property manually" : supported ? "This listing is supported" : "This page is not supported"}
+        lede={(supported || currentReview?.source === "manual") ? "We only extract facts that appear on the page. Missing values stay Not listed." : undefined}
       />
 
-      {supported && (
+      {supported && currentReview?.source !== "manual" && (
         <Card>
           <div class="row row--between">
             <span class="pagecard__source">{SOURCE_LABEL[page.detected.source]}</span>
@@ -76,7 +76,7 @@ export function AnalyzeScreen({ state, onAnalyze, onEdit, onAmenity, onPlan, onS
         </Card>
       )}
 
-      {!supported && (
+      {!supported && currentReview?.source !== "manual" && (
         <Card>
           <p>{UNSUPPORTED_TEXT}</p>
           <div class="actions" style="margin-top:16px">

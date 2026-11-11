@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { DEFAULT_BUDGET, type LeaseType, type Preferences, type TransportMode } from "@/core/domain";
+import { DEFAULT_BUDGET, type LeaseType, type Preferences, type TransportMode, type Priority, type PriorityKey } from "@/core/domain";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Checkbox } from "../components/Checkbox";
@@ -56,6 +56,10 @@ export function PreferencesScreen({ initial, onSave, saved }: {
       >
         <input id="budget" inputMode="decimal" placeholder={String(DEFAULT_BUDGET)} value={budgetText} onInput={(e) => setBudgetText((e.currentTarget as HTMLInputElement).value)} />
       </Field>
+
+      <div><div class="field__label">What matters most?</div><p class="field__hint">Must-Have items count much more than Nice-to-Have. Not Important items do not affect your score.</p><Card class="prefs__priorities">
+        {([['budget','Monthly rent'],['rooms','Bedrooms & bathrooms'],['parking','Parking'],['laundry','Laundry'],['lease','Lease length'],['pets','Pets'],['utilities','Utilities'],['furnished','Furnishing'],['transport','Transportation']] as [PriorityKey,string][]).map(([key,label]) => <div class="priority" key={key}><span class="priority__label">{label}</span><select value={p.priorities[key]} onChange={(e)=>update({ priorities: {...p.priorities,[key]:(e.currentTarget as HTMLSelectElement).value as Priority} })}><option value="must">Must-Have</option><option value="nice">Nice-to-Have</option><option value="none">Not Important</option></select></div>)}
+      </Card></div>
 
       <ChoiceGroup<TransportMode>
         label="Transportation preference"

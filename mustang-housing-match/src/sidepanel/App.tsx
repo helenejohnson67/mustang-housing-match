@@ -6,6 +6,12 @@ import { useStore } from "./state/store";
 import { PreferencesScreen } from "./screens/PreferencesScreen";
 import { AnalyzeScreen } from "./screens/AnalyzeScreen";
 import { ResultsScreen } from "./screens/ResultsScreen";
+import { HomeScreen } from "./screens/HomeScreen";
+import { SavedScreen } from "./screens/SavedScreen";
+import { CompareScreen } from "./screens/CompareScreen";
+import { HelpScreen } from "./screens/HelpScreen";
+import { OnboardingScreen } from "./screens/OnboardingScreen";
+import { Notice } from "./components/Notice";
 
 export function App({ services: injected }: { services?: Services } = {}) {
   const [services, setServices] = useState<Services | undefined>(injected);
@@ -24,9 +30,10 @@ function LoadedApp({ controller }: { controller: MatchController }) {
     if (!s.loaded) void controller.init();
   }, [controller, s.loaded]);
 
-  const tab: TabId = s.screen;
+  const tab: TabId = (s.screen === "analyze" || s.screen === "results" ? "home" : s.screen) as TabId;
   const setTab = (id: TabId) => controller.go(id);
 
+  if (s.loaded && !s.onboardingComplete) return <div class="app"><main class="app__main"><OnboardingScreen onStart={() => void controller.completeOnboarding("preferences")} onSkip={() => void controller.completeOnboarding("home")} /></main></div>;
   return (
     <div class="app">
       <header class="app__header">
@@ -40,27 +47,23 @@ function LoadedApp({ controller }: { controller: MatchController }) {
       </header>
       <div class="app__notice">Missing listing details stay Not listed. Confirm facts with the landlord.</div>
       <main class="app__main" data-tab={tab}>
+        {s.notice && <Notice tone="info" role="status">{s.notice}</Notice>}
         {!s.loaded ? (
           <div class="empty">Loading…</div>
+        ) : s.screen === "analyze" ? (
+          <AnalyzeScreen state={s} onAnalyze={() => void controller.analyze()} onEdit={(k, v) => controller.editFact(k, v)} onAmenity={(id, v) => controller.editAmenity(id, v)} onPlan={(id) => controller.pickFloorPlan(id)} onSave={() => void controller.saveListingChanges()} />
+        ) : s.screen === "results" ? (
+          <ResultsScreen listing={s.listing} result={s.scorecard} prefs={s.prefs} onEdit={() => controller.go("analyze")} onPreferences={() => controller.go("preferences")} />
+        ) : tab === "home" ? (
+          <HomeScreen page={s.page} onAnalyze={() => controller.go("analyze")} onPreferences={() => controller.go("preferences")} />
         ) : tab === "preferences" ? (
           <PreferencesScreen initial={s.prefs} saved={s.prefsSaved} onSave={(p) => void controller.savePreferences(p)} />
-        ) : tab === "analyze" ? (
-          <AnalyzeScreen
-            state={s}
-            onAnalyze={() => void controller.analyze()}
-            onEdit={(k, v) => controller.editFact(k, v)}
-            onAmenity={(id, v) => controller.editAmenity(id, v)}
-            onPlan={(id) => controller.pickFloorPlan(id)}
-            onSave={() => void controller.saveListingChanges()}
-          />
+        ) : tab === "saved" ? (
+          <SavedScreen listings={s.listings} prefs={s.prefs} selected={s.selectedIds} onToggle={(id) => controller.toggleCompare(id)} onOpen={(l) => controller.openListing(l)} onDelete={(id) => void controller.deleteListing(id)} onCompare={() => controller.go("compare")} onAdd={() => controller.addManualListing()} />
+        ) : tab === "compare" ? (
+          <CompareScreen listings={s.listings.filter((l) => s.selectedIds.includes(l.id))} prefs={s.prefs} />
         ) : (
-          <ResultsScreen
-            listing={s.listing}
-            result={s.scorecard}
-            prefs={s.prefs}
-            onEdit={() => controller.go("analyze")}
-            onPreferences={() => controller.go("preferences")}
-          />
+          <HelpScreen onGuide={() => void controller.reopenOnboarding()} />
         )}
       </main>
       <TabBar active={tab} onChange={setTab} />

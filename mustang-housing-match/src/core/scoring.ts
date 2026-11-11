@@ -51,6 +51,7 @@ export interface FactorResult {
 
 export interface FitScoreResult {
   score: number;
+  category: "Great Match" | "Possible Match" | "Poor Match";
   factors: Record<keyof typeof SCORE_WEIGHTS, FactorResult>;
   benefits: Insight[];
   watchOuts: Insight[];
@@ -166,13 +167,21 @@ export function fitScore(facts: ListingFacts, prefs: Preferences): FitScoreResul
 
   const factors = {} as FitScoreResult["factors"];
   let sum = 0;
+  let activeMax = 0;
   for (const key of Object.keys(SCORE_WEIGHTS) as (keyof typeof SCORE_WEIGHTS)[]) {
     const max = SCORE_WEIGHTS[key];
-    const points = max * fractions[key];
+    const priorityKey = key === "amenities" ? undefined : key === "rooms" ? "rooms" : key;
+    const priority = priorityKey ? prefs.priorities?.[priorityKey] ?? "nice" : "nice";
+    // Amenities combine their individual selected priorities below; retain an intuitive overall weight.
+    const multiplier = priority === "must" ? 3 : priority === "nice" ? 1 : priorityKey ? 0 : 1;
+    const effectiveMax = max * multiplier;
+    const points = effectiveMax * fractions[key];
     factors[key] = { points, max, fraction: fractions[key] };
     sum += points;
+    activeMax += effectiveMax;
   }
-  const score = Math.max(0, Math.min(100, Math.round(sum)));
+  // Priority selection changes influence without exposing weighted arithmetic. All-none is safely 0.
+  const score = activeMax > 0 ? Math.max(0, Math.min(100, Math.round((sum / activeMax) * 100))) : 0;
 
   const benefits: Insight[] = [];
   const watchOuts: Insight[] = [];
@@ -276,7 +285,7 @@ export function fitScore(facts: ListingFacts, prefs: Preferences): FitScoreResul
     });
   }
 
-  return { score, factors, benefits, watchOuts };
+  return { score, category: score >= 80 ? "Great Match" : score >= 50 ? "Possible Match" : "Poor Match", factors, benefits, watchOuts };
 }
 
 function cap(s: string) {

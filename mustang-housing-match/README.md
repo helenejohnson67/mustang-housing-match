@@ -117,3 +117,11 @@ Live Chrome validation for this alpha is still required and has not been recorde
 - [`RELEASE_NOTES.md`](RELEASE_NOTES.md) - scope, user stories, installation, limitations, and future work for v0.1.0.
 - [`TESTING.md`](TESTING.md) - manual and automated verification checklist.
 - [`docs/checklists/README.md`](docs/checklists/README.md) - pointer to the current alpha checklist.
+# Mustang Housing Match
+
+## Current local build
+
+Load the generated `dist` directory in Chrome Developer Mode after `npm run build`. Capture extraction is verified by fixtures for Zillow, Craigslist, and Apartments.com. Redfin, Facebook Marketplace, California-West, Farrell Smyth, and RPM Central Coast are recognized but intentionally fall back to manual entry until their individual layouts can be browser-tested. Facebook data is never accessed outside the user's signed-in browser session.
+
+Use **Saved Listings** to add a property manually, select two to four properties, then use **Compare** to copy a roommate-friendly summary or choose Print / PDF.
+

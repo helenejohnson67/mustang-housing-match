@@ -8,7 +8,12 @@
   "host_permissions": [
     "https://*.zillow.com/*",
     "https://*.craigslist.org/*",
-    "https://*.apartments.com/*"
+    "https://*.apartments.com/*",
+    "https://*.redfin.com/*",
+    "https://*.facebook.com/*",
+    "https://*.californiawest.com/*",
+    "https://*.farrellsmyth.com/*",
+    "https://*.rpmcentralcoast.com/*"
   ],
   "background": { "service_worker": "background.js", "type": "module" },
   "side_panel": { "default_path": "src/sidepanel/index.html" },

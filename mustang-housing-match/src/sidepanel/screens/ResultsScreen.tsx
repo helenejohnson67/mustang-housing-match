@@ -57,8 +57,8 @@ export function ResultsScreen({ listing, result, prefs, onEdit, onPreferences }:
         <div class="scorecard__hero">
           <ScoreRing score={result.score} label="of 100" />
           <div>
-            <div class="scorecard__band">Fit Score</div>
-            <div class="scorecard__summary">{result.score} out of 100. Budget is weighted most heavily (40 of 100 points).</div>
+            <div class="scorecard__band">{result.category}</div>
+            <div class="scorecard__summary">Fit Score: {result.score} out of 100. Missing facts reduce confidence and are never assumed to match.</div>
           </div>
         </div>
       </Card>

@@ -18,6 +18,8 @@ export function capturePage(doc: Document, url: string): RawCapture {
         return readCraigslist(doc, url);
       case "apartments":
         return readApartments(doc, url);
+      default:
+        return { url, title: doc.title, source: detected.source, kind: detected.kind, warnings: ["Automatic extraction has not been verified for this provider. Use manual entry to save only information you can confirm."], facts: undefined };
     }
   } catch (e) {
     return { url, title: doc.title, source: detected.source, kind: detected.kind, warnings: [`Capture failed: ${e instanceof Error ? e.message : String(e)}`] };
